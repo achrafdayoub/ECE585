@@ -21,8 +21,8 @@ counter mytimer(
 
 //initializing a different counter for the traffic lights counter (tlc)
 realfsm tlc(
-		.clk(Clock),
-        .reset(Reset),
+		.Clock(Clock),
+        .Reset(Reset),
         .load(load),
 		.value(value),
         .decr(decr),
@@ -51,12 +51,13 @@ output reg [1:0] // outputs for controlling traffic lights
 
 // Define states using hot one
 localparam
-	GRR		 = 6'b000001,
-	YRR 	 = 6'b000010,
-	RRR1	 = 6'b000100,
-	RGG		 = 6'b001000,
-	RYY	 	 = 6'b010000,
-	RRR2	 = 6'b100000;
+	GRR		 = 7'b0000001,
+	YRR 	 = 7'b0000010,
+	RRR1	 = 7'b0000100,
+	RGG		 = 7'b0001000,
+	RYY	 	 = 7'b0010000,
+	RRR2	 = 7'b0100000,
+	Flash	 = 7'b1000000;
 	
 // Declare value as an 8 bits output register from the realfsm to the counter
 output reg [7:0]  value;			
@@ -75,13 +76,13 @@ localparam
 	Red = 2'b11, 					// Declare Red as to bit value 11
 	SET = 1'b1,						// define 1 as set 
 	CLEAR = 1'b0,					// define 0 as clear
-	GRR_TIMER 	 = 6'b101101,		// 45 seconds Green-Red-Red
-	RED_TIMER 	 = 6'b000001,		// 1 second Red-Red-Red
-	RGG_TIMER 	 = 6'b001111,		// 15 seconds Red-Green-Green
-	YELLOW_TIMER = 6'b000101;		// 5 seconds Yellow-Red-Red or Red-Yellow-Yellow
+	GRR_TIMER 	 = 8'b00101100,		// 44 seconds Green-Red-Red to get 45
+	RED_TIMER 	 = 8'b00000000,		// 0 second Red-Red-Red to get 1 second because the clock is 1 HZ
+	RGG_TIMER 	 = 8'b00001110,		// 14 seconds Red-Green-Green to get 15 seconds
+	YELLOW_TIMER = 8'b00000100;		// 4 seconds Yellow-Red-Red or Red-Yellow-Yellow to get 5 seconds
 
 // create 6 bits registers for State and NextState
-reg [5:0] State, NextState;
+reg [6:0] State, NextState;
 
 
 // Update state or reset on every + clock edge
@@ -91,7 +92,7 @@ if (Reset)
 	begin
 	value = GRR_TIMER;						// 45 seconds value
 	load = SET;								// load the value
-	decr <= CLEAR;							// Do not decrement 
+	decr = CLEAR;							// Do not decrement 
 	State <= GRR;							// Go to the Green-Red-Red state
 	end
 else
@@ -100,13 +101,14 @@ end
 	always @(State)
 		begin
 			case(State)
-				GRR: 	  begin L1 <= Green; L2 <= Red; L3 <= Red; end					// Green		Red			Red
-				YRR:	  begin L1 <= Yellow; L2 <= Red; L3 <= Red; end					// Yellow		Red			Red
-				RRR1: 	  begin L1 <= Red; L2 <= Red; L3 <= Red; end					// Red			Red			Red
-				RGG:	  begin L1 <= Red; L2 <= Green; L3 <= Green; end				// Red			Green		Green
-				RYY:	  begin L1 <= Red; L2 <= Yellow; L3 <= Yellow; end				// Red			Yellow		Yellow
-				RRR2:	  begin L1 <= Red; L2 <= Red; L3 <= Red; end					// Red			Red			Red
-			default 	  begin L1 <= Flashing; L2 <= Flashing; L3 <= Flashing; end		// Flashing		Flashing	Flashing
+				GRR: 	  begin L1 = Green; L2 = Red; L3 = Red; 			 end	// Green		Red			Red
+				YRR:	  begin L1 = Yellow; L2 = Red; L3 = Red; 			 end	// Yellow		Red			Red
+				RRR1: 	  begin L1 = Red; L2 = Red; L3 = Red; 				 end	// Red			Red			Red
+				RGG:	  begin L1 = Red; L2 = Green; L3 = Green; 			 end	// Red			Green		Green
+				RYY:	  begin L1 = Red; L2 = Yellow; L3 = Yellow; 		 end	// Red			Yellow		Yellow
+				RRR2:	  begin L1 = Red; L2 = Red; L3 = Red; 				 end	// Red			Red			Red
+				Flash: 	  begin L1 = Flashing; L2 = Flashing; L3 = Flashing; end	// Flashing		Flashing	Flashing
+			default 	  begin L1 = Flashing; L2 = Flashing; L3 = Flashing; end	// Flashing		Flashing	Flashing
 			endcase
 		end
 		
@@ -119,20 +121,26 @@ case (State)
 			begin	
 			value = YELLOW_TIMER;						// 5 seconds value before moving to Yellow-Red-Red State
 			load = SET;									// load the Yellow timer
-			decr <= CLEAR;								// Do not decrement 					
+			decr = CLEAR;								// Do not decrement 					
 			NextState = YRR;							// Move to the Yellow-Red-Red state
 			end
-		else if (~S1 && ~S2 && ~S3 && timeup)			// no sensors asserted => change lights after 45
+		else if (!S1 && !S2 && !S3 && timeup)			// no sensors asserted => change lights after 45
 			begin
 			value = YELLOW_TIMER;						// load 5 seconds value before moving to Yellow-Red-Red State
 			load = SET;									// load the Yellow timer
-			decr <= CLEAR;								// Do not decrement
+			decr = CLEAR;								// Do not decrement
 			NextState = YRR;							
 			end
+		else if((S1 !== 1'b1) && (S1 !== 1'b0))			// protect the system from broken Sensor 1
+			NextState = Flash;
+		else if((S2 !== 1'b1) && (S2 !== 1'b0))			// protect the system from broken Sensor 2
+			NextState = Flash;
+		else if((S3 !== 1'b1) && (S3 !== 1'b0))			// protect the system from broken Sensor 3
+			NextState = Flash;
 		else
 			begin
 			load = CLEAR;								// Clear the load bit to make sure we are not loading while decrementing
-			decr <= SET;								// decrement Green-Red-Red counter 
+			decr = SET;									// decrement Green-Red-Red counter 
 			NextState = GRR;							// come back to the same state until timeup is set
 			end
 		end
@@ -141,13 +149,13 @@ case (State)
 			begin
 			value = RED_TIMER;							// 1 second value
 			load = SET;									// load Red-Red-Red counter 
-			decr <= CLEAR;								// Do not decrement 									
+			decr = CLEAR;								// Do not decrement 									
 			NextState = RRR1;							// Move to the first Red-Red-Red state
 			end
 		else
 			begin	
 			load = CLEAR;								// Clear the load bit to make sure we are not loading while decrementing
-			decr <= SET;								// decrement Yellow-Red-Red counter 
+			decr = SET;									// decrement Yellow-Red-Red counter 
 			NextState = YRR;							// come back to the same state until timeup is set
 			end
 		end	
@@ -156,13 +164,13 @@ case (State)
 			begin
 			value = RGG_TIMER;							// 15 seconds value
 			load = SET;									// load Red-Green-Green counter 
-			decr <= CLEAR;								// Do not decrement 
+			decr = CLEAR;								// Do not decrement 
 			NextState = RGG;							// move to Red-Green-Green state
 			end
 		else
 			begin	
 			load = CLEAR;								// Clear the load bit to make sure we are not loading while decrementing
-			decr <= SET;								// decrement Red-Red-Red counter 
+			decr = SET;									// decrement Red-Red-Red counter 
 			NextState = RRR1;							// come back to the same state until timeup is set
 			end
 		end		
@@ -171,13 +179,13 @@ case (State)
 			begin
 			value = YELLOW_TIMER;						// load 5 seconds value before moving to Yellow-Red-Red State		
 			load = SET;									// load Red-Yellow-Yellow counter 
-			decr <= CLEAR;								// Do not decrement 
+			decr = CLEAR;								// Do not decrement 
 			NextState = RYY;							// Move to Red-Yellow-Yellow state
 			end
 		else
 			begin	
 			load = CLEAR;								// Clear the load bit to make sure we are not loading while decrementing
-			decr <= SET;								// decrement Red-Green-Green counter 
+			decr = SET;									// decrement Red-Green-Green counter 
 			NextState = RGG;							// come back to the same state until timeup is set
 			end
 		end
@@ -186,13 +194,13 @@ case (State)
 			begin
 			value = RED_TIMER;							// 1 second value
 			load = SET;									// load Red-Red-Red counter 
-			decr <= CLEAR;								// Do not decrement 
+			decr = CLEAR;								// Do not decrement 
 			NextState = RRR2;							// Move to the second Red-Red-Red state
 			end
 		else
 			begin	
 			load = CLEAR;								// Clear the load bit to make sure we are not loading while decrementing
-			decr <= SET;								// decrement Red-Yellow-Yellow counter 
+			decr = SET;									// decrement Red-Yellow-Yellow counter 
 			NextState = RYY;
 			end
 		end
@@ -201,17 +209,27 @@ case (State)
 			begin
 			value = GRR_TIMER;							// 45 seconds value
 			load = SET;									// load Green-Red-Red counter 
-			decr <= CLEAR;								// Do not decrement 			
+			decr = CLEAR;								// Do not decrement 			
 			NextState = GRR;							// Move to the Green-Red-Red state
 			end
 		else
 			begin	
 			load = CLEAR;								// Clear the load bit to make sure we are not loading while decrementing
-			decr <= SET;								// decrement Red-Red-Red counter 
+			decr = SET;									// decrement Red-Red-Red counter 
 			NextState = RRR2;							// come back to the same state until timeup is set
 			end
 		end	
-	default begin L1 <= Flashing; L2 <= Flashing; L3 <= Flashing; end		// Flashing-Flashing-Flashing (fail safe mode)
+	Flash:begin											// protect the system from broken Sensor 1
+		if((S1 !== 1'b1) && (S1 !== 1'b0))
+			NextState = Flash;
+		else if((S2 !== 1'b1) && (S2 !== 1'b0))			// protect the system from broken Sensor 2
+			NextState = Flash;
+		else if((S3 !== 1'b1) && (S3 !== 1'b0))			// protect the system from broken Sensor 3
+			NextState = Flash;
+		else
+			NextState = GRR;
+		end
+	default begin NextState = Flash; end				// Flashing-Flashing-Flashing (fail safe mode)
 endcase
 end
 endmodule
